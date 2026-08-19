@@ -116,10 +116,3 @@ CREATE TABLE IF NOT EXISTS raw_cadastro_pacientes (
 
 )
 COMMENT = 'Historico bruto de cadastros e atualizacoes dos pacientes.';
-
-
--- ========================================================================================
--- 5. VALIDACAO
--- ========================================================================================
-
-SHOW TABLES IN SCHEMA engenharia_analytics_saude_dev.raw;

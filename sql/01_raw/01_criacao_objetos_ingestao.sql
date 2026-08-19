@@ -62,12 +62,3 @@ CREATE FILE FORMAT IF NOT EXISTS ff_csv_saude
 CREATE STAGE IF NOT EXISTS stg_arquivos_saude
     FILE_FORMAT = ff_csv_saude
     COMMENT = 'Stage interno para recebimento dos arquivos CSV do projeto engenharia_analytics_saude.';
-
-
--- ========================================================================================
--- 4. VALIDACAO
--- ========================================================================================
-
-SHOW FILE FORMATS LIKE 'FF_CSV_SAUDE';
-
-SHOW STAGES LIKE 'STG_ARQUIVOS_SAUDE';
