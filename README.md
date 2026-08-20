@@ -2,7 +2,7 @@
 
 Projeto de Analytics Engineering desenvolvido em Snowflake para implementar um pipeline analítico completo a partir de dados de atendimentos de saúde.
 
-A solução cobre o ciclo desde a ingestão de arquivos CSV até a disponibilização de produtos analíticos, incluindo modelagem dimensional, processamento incremental, qualidade de dados, governança e práticas de FinOps.
+A solução cobre o ciclo desde a ingestão de arquivos CSV até a disponibilização de produtos analíticos, incluindo modelagem dimensional, processamento incremental, qualidade de dados, governança, FinOps e CI/CD.
 
 O projeto foi desenvolvido seguindo os princípios da metodologia VDAE, adaptados para uma arquitetura Snowflake.
 
@@ -28,7 +28,12 @@ A implementação contempla:
 - controles formais de Data Quality;
 - governança;
 - FinOps;
-- versionamento com Git.
+- versionamento com Git;
+- Continuous Integration;
+- Continuous Deployment;
+- autenticação passwordless via OIDC;
+- deployment automatizado no Snowflake DEV;
+- Quality Gate automatizado.
 
 ---
 
@@ -38,10 +43,14 @@ Principais tecnologias utilizadas:
 
 - Snowflake;
 - SQL;
+- Snowflake CLI;
 - Git;
 - GitHub;
+- GitHub Actions;
+- SQLFluff;
 - VSCode;
-- PowerShell.
+- PowerShell;
+- Bash.
 
 ---
 
@@ -74,6 +83,8 @@ Business -----------------→ Data Quality
 Information --------------→ Data Quality
                                ↓
                       dq_resumo_qualidade
+                               ↓
+                         Quality Gate
 ```
 
 ### Responsabilidade das camadas
@@ -278,7 +289,7 @@ A abordagem facilita:
 - manutenção;
 - reprocessamento;
 - automação;
-- evolução para CI/CD.
+- execução por CI/CD.
 
 ---
 
@@ -370,19 +381,21 @@ A View:
 
 consolida o estado dos testes por escopo.
 
+Essa estrutura também é utilizada pelo pipeline de Continuous Deployment como fonte para o Quality Gate automatizado.
+
 Isso permite evolução futura para:
 
 - dashboards de qualidade;
 - alertas;
 - histórico de execuções;
-- monitoramento;
-- Quality Gates de CI/CD.
+- monitoramento operacional;
+- observabilidade centralizada.
 
 ---
 
 ## 17. FinOps
 
-Foram utilizados dois Virtual Warehouses:
+Foram utilizados dois Virtual Warehouses.
 
 ### Transformação
 
@@ -414,17 +427,33 @@ A execução regular utiliza:
 
 `role_engenharia_analytics`
 
-`ACCOUNTADMIN` foi utilizado somente quando necessário para atividades administrativas de setup.
+As atividades automatizadas de CI/CD utilizam uma identidade dedicada e uma role específica para automação.
+
+A autenticação entre GitHub Actions e Snowflake foi implementada utilizando OIDC / Workload Identity Federation.
+
+Com isso, o pipeline não necessita armazenar:
+
+- senha do usuário Snowflake;
+- private key;
+- credenciais permanentes no repositório.
+
+O fluxo utiliza tokens temporários emitidos durante a execução do GitHub Actions.
 
 A estratégia segue o princípio de menor privilégio.
+
+`ACCOUNTADMIN` foi utilizado somente quando necessário para atividades administrativas de setup.
 
 O projeto também utiliza:
 
 - separação por schemas;
 - nomenclatura padronizada;
+- RBAC;
+- service identity para automação;
 - Git;
+- Pull Requests;
 - registro de mudanças;
-- Data Quality observável.
+- Data Quality observável;
+- Quality Gate.
 
 ---
 
@@ -455,21 +484,29 @@ Role operacional:
 role_engenharia_analytics
 ```
 
+A automação de CI/CD utiliza identidade e role dedicadas, separando a execução automatizada da utilização interativa do ambiente.
+
 ---
 
 ## 20. Estrutura do Repositório
 
-Estrutura conceitual:
+Estrutura principal do projeto:
 
 ```text
 engenharia_analytics_saude/
 │
-├── sql/
-│   ├── setup/
-│   ├── ingestao/
-│   ├── transformacao/
-│   ├── modelagem/
-│   └── 05_qualidade_dados/
+├── .github/
+│   └── workflows/
+│       ├── ci.yml
+│       ├── cd_dev.yml
+│       └── test_snowflake_oidc.yml
+│
+├── changes/
+│
+├── dados/
+│
+├── deploy/
+│   └── dev_manifest.txt
 │
 ├── documentacao/
 │   ├── 01_arquitetura.md
@@ -479,31 +516,75 @@ engenharia_analytics_saude/
 │   ├── 05_governanca_seguranca.md
 │   └── 06_execucao_projeto.md
 │
-├── changes/
+├── scripts/
+│   └── deploy_dev.sh
+│
+├── sql/
+│   ├── 00_configuracao/
+│   │   └── 01_configuracao_inicial.sql
+│   │
+│   ├── 01_raw/
+│   │   ├── 01_criacao_objetos_ingestao.sql
+│   │   ├── 02_criacao_tabelas_raw.sql
+│   │   └── 03_carga_tabelas_raw.sql
+│   │
+│   ├── 02_staging/
+│   │   ├── 01_stg_atendimentos.sql
+│   │   ├── 02_stg_procedimentos_itens.sql
+│   │   └── 03_stg_cadastro_pacientes.sql
+│   │
+│   ├── 03_business/
+│   │   ├── 01_dim_procedimento.sql
+│   │   ├── 02_dim_unidade.sql
+│   │   ├── 03_dim_medico.sql
+│   │   ├── 04_dim_data.sql
+│   │   ├── 05_dim_paciente.sql
+│   │   ├── 06_criacao_fct_procedimentos.sql
+│   │   └── 07_carga_fct_procedimentos.sql
+│   │
+│   ├── 04_information/
+│   │   ├── 01_vw_analise_procedimentos.sql
+│   │   └── 02_agg_faturamento_mensal_unidade.sql
+│   │
+│   └── 05_qualidade_dados/
+│       ├── 01_dq_raw.sql
+│       ├── 02_dq_staging.sql
+│       ├── 03_dq_business_dimensoes.sql
+│       ├── 04_dq_business_scd2.sql
+│       ├── 05_dq_business_fato.sql
+│       ├── 06_dq_reconciliacao_financeira.sql
+│       ├── 07_dq_information.sql
+│       └── 08_dq_resumo_qualidade.sql
+│
 ├── tmp_changes/
+├── .gitignore
+├── .sqlfluff
 └── README.md
 ```
-
-> A estrutura exata das pastas SQL deve ser consultada no próprio repositório, pois representa os scripts efetivamente implementados no projeto.
 
 ---
 
 ## 21. Ordem de Execução
 
-A ordem lógica do pipeline é:
+A ordem lógica do pipeline de dados é:
 
 ```text
-1. Setup
-2. Ingestão
-3. Raw
-4. Staging
-5. Dimensões
-6. Fato
-7. Carga incremental
-8. Information
-9. Data Quality
-10. Validação consolidada
+1. Configuração
+2. Raw / Ingestão
+3. Staging
+4. Dimensões
+5. Fato
+6. Carga incremental
+7. Information
+8. Data Quality
+9. Validação consolidada
 ```
+
+A ordem automatizada utilizada pelo Continuous Deployment é controlada explicitamente pelo arquivo:
+
+`deploy/dev_manifest.txt`
+
+O manifesto funciona como contrato de deployment, determinando quais scripts SQL serão executados e em qual sequência.
 
 A documentação operacional completa está disponível em:
 
@@ -511,7 +592,274 @@ A documentação operacional completa está disponível em:
 
 ---
 
-## 22. Validação Final
+## 22. Continuous Integration
+
+O projeto utiliza GitHub Actions para executar validações automáticas antes da integração de mudanças à branch principal.
+
+O fluxo de desenvolvimento segue:
+
+```text
+Feature Branch
+      ↓
+Pull Request
+      ↓
+Continuous Integration
+      ↓
+Validações
+      ↓
+Merge permitido
+```
+
+Entre as validações implementadas estão:
+
+- estrutura básica do repositório;
+- existência dos arquivos SQL;
+- bloqueio de arquivos CSV indevidamente versionados;
+- detecção de arquivos temporários;
+- verificações básicas contra possíveis credenciais;
+- configuração automática do ambiente Python;
+- instalação do SQLFluff;
+- lint dos scripts SQL utilizando o dialeto Snowflake.
+
+O CI atua como primeira barreira automática de qualidade antes do merge.
+
+---
+
+## 23. SQLFluff e Lint SQL
+
+O projeto utiliza SQLFluff para análise estática dos scripts SQL.
+
+O lint verifica padrões de código sem precisar executar os scripts no Snowflake.
+
+Entre os controles estão aspectos relacionados a:
+
+- formatação;
+- indentação;
+- consistência;
+- estrutura;
+- convenções SQL;
+- compatibilidade com o dialeto Snowflake.
+
+Esse controle reduz inconsistências antes que o código seja integrado à branch `main`.
+
+---
+
+## 24. Continuous Deployment
+
+O projeto possui Continuous Deployment automatizado para o ambiente Snowflake DEV.
+
+O workflow principal está localizado em:
+
+`.github/workflows/cd_dev.yml`
+
+O fluxo definitivo é:
+
+```text
+Feature Branch
+      ↓
+Pull Request
+      ↓
+CI
+      ↓
+Merge
+      ↓
+main
+      ↓
+CD Snowflake DEV
+      ↓
+Autenticação OIDC
+      ↓
+Validação do manifesto
+      ↓
+Validação dos scripts
+      ↓
+Deployment
+      ↓
+Data Quality
+      ↓
+Quality Gate
+      ↓
+Sucesso / Falha
+```
+
+O deployment automático ocorre após alterações integradas à branch:
+
+`main`
+
+Também existe suporte à execução manual por meio de `workflow_dispatch`.
+
+---
+
+## 25. Autenticação OIDC / Workload Identity Federation
+
+A comunicação entre GitHub Actions e Snowflake utiliza autenticação baseada em OIDC / Workload Identity Federation.
+
+Arquitetura simplificada:
+
+```text
+GitHub Actions
+      ↓
+OIDC Token temporário
+      ↓
+Snowflake
+      ↓
+Service Identity
+      ↓
+Role de CI/CD
+      ↓
+Role de Engenharia
+      ↓
+Objetos DEV
+```
+
+Essa abordagem evita o armazenamento de credenciais permanentes no GitHub.
+
+O acesso foi validado por meio de um workflow específico:
+
+`.github/workflows/test_snowflake_oidc.yml`
+
+Esse workflow foi utilizado durante a implementação para validar:
+
+- autenticação;
+- identidade utilizada pelo GitHub Actions;
+- acesso ao Snowflake;
+- hierarquia de roles;
+- capacidade da automação de assumir a role necessária para o deployment.
+
+---
+
+## 26. Manifesto de Deployment
+
+O arquivo:
+
+`deploy/dev_manifest.txt`
+
+define explicitamente os scripts SQL que fazem parte do deployment do ambiente DEV.
+
+O manifesto evita depender da descoberta automática de arquivos no repositório.
+
+Isso permite controlar:
+
+- quais scripts são executados;
+- a ordem de execução;
+- inclusão explícita de novos objetos;
+- previsibilidade;
+- rastreabilidade;
+- reprodutibilidade do deployment.
+
+---
+
+## 27. Executor de Deployment
+
+O arquivo:
+
+`scripts/deploy_dev.sh`
+
+é responsável pela execução automatizada dos scripts definidos no manifesto.
+
+O executor:
+
+1. lê o manifesto;
+2. identifica os scripts SQL;
+3. executa os scripts sequencialmente;
+4. interrompe o processo em caso de erro;
+5. reporta o resultado da execução ao GitHub Actions.
+
+Essa abordagem transforma os scripts versionados no repositório em um processo reproduzível de deployment.
+
+---
+
+## 28. Quality Gate
+
+Após o deployment, o pipeline executa automaticamente o Quality Gate.
+
+O Quality Gate consulta os controles consolidados da camada:
+
+`qualidade_dados`
+
+utilizando como referência:
+
+`dq_resumo_qualidade`
+
+A regra conceitual é:
+
+```text
+Data Quality
+      ↓
+80 controles
+      ↓
+Existe teste REPROVADO?
+      │
+      ├── SIM → deployment reprovado
+      │
+      └── NÃO → deployment aprovado
+```
+
+Resultado validado durante a implementação:
+
+```text
+QUALITY_GATE_APROVADO
+
+80 testes executados
+80 testes aprovados
+0 testes reprovados
+```
+
+Dessa forma, um deployment tecnicamente executável não é considerado automaticamente válido: ele também precisa atender aos critérios de qualidade dos dados.
+
+---
+
+## 29. Fluxo CI/CD Completo
+
+A arquitetura final de entrega é:
+
+```text
+Desenvolvedor
+     ↓
+Feature Branch
+     ↓
+Pull Request
+     ↓
+┌───────────────────────────┐
+│ Continuous Integration    │
+│                           │
+│ Estrutura do repositório  │
+│ Arquivos SQL              │
+│ Segurança básica          │
+│ SQLFluff                  │
+└─────────────┬─────────────┘
+              ↓
+            Merge
+              ↓
+             main
+              ↓
+┌───────────────────────────┐
+│ Continuous Deployment     │
+│                           │
+│ OIDC / WIF                │
+│ Snowflake CLI             │
+│ Manifesto                 │
+│ Executor SQL              │
+└─────────────┬─────────────┘
+              ↓
+         Snowflake DEV
+              ↓
+         Data Quality
+              ↓
+┌───────────────────────────┐
+│ Quality Gate              │
+│                           │
+│ 80 testes                 │
+│ 80 aprovados              │
+│ 0 reprovados              │
+└─────────────┬─────────────┘
+              ↓
+       DEPLOY APROVADO
+```
+
+---
+
+## 30. Validação Final
 
 O projeto pode ser considerado tecnicamente válido quando:
 
@@ -523,11 +871,17 @@ O projeto pode ser considerado tecnicamente válido quando:
 - os Late Arriving Dimensions conhecidos estão preservados;
 - os valores financeiros estão reconciliados;
 - os produtos Information estão reconciliados;
-- os 80 controles de Data Quality estão aprovados.
+- os 80 controles de Data Quality estão aprovados;
+- o CI está aprovado;
+- a autenticação OIDC está funcional;
+- o deployment automatizado está funcional;
+- o Quality Gate está aprovado.
+
+Durante a validação final do projeto, o fluxo completo foi executado com sucesso a partir de um merge na branch `main`.
 
 ---
 
-## 23. Documentação
+## 31. Documentação
 
 A documentação detalhada está disponível em:
 
@@ -542,7 +896,7 @@ A documentação detalhada está disponível em:
 
 ---
 
-## 24. Principais Decisões Técnicas
+## 32. Principais Decisões Técnicas
 
 Entre as principais decisões tomadas durante o projeto estão:
 
@@ -563,34 +917,46 @@ Entre as principais decisões tomadas durante o projeto estão:
 15. separação de compute entre transformação e BI;
 16. sizing conservador orientado a FinOps;
 17. RBAC e princípio de menor privilégio;
-18. versionamento e documentação das mudanças.
+18. versionamento e documentação das mudanças;
+19. desenvolvimento baseado em feature branches e Pull Requests;
+20. Continuous Integration com GitHub Actions;
+21. lint SQL automatizado com SQLFluff;
+22. autenticação passwordless via OIDC / Workload Identity Federation;
+23. identidade dedicada para automação;
+24. manifesto explícito de deployment;
+25. executor sequencial de scripts SQL;
+26. Continuous Deployment para Snowflake DEV;
+27. Quality Gate integrado ao deployment;
+28. bloqueio automático do pipeline diante de falhas de qualidade.
 
 ---
 
-## 25. Evoluções Futuras
+## 33. Evoluções Futuras
 
 A arquitetura permite evolução para um cenário corporativo com:
 
-- ambientes DEV, QA e PROD;
-- CI/CD;
-- Quality Gates;
-- execução automatizada de Data Quality;
-- histórico de resultados de qualidade;
-- alertas;
+- ambientes QA e PROD;
+- promoção controlada DEV → QA → PROD;
+- aprovação manual para produção;
+- histórico persistente dos resultados de Data Quality;
+- alertas automáticos;
+- dashboards de observabilidade;
 - Resource Monitors;
-- monitoramento de custos;
+- monitoramento detalhado de custos;
 - classificação de dados;
 - Tags;
 - Masking Policies;
 - Row Access Policies;
-- service identities;
-- automação de grants;
-- observabilidade operacional;
-- Multi-cluster quando houver necessidade de concorrência.
+- automação adicional de grants;
+- gestão centralizada de secrets quando necessária;
+- testes automatizados adicionais;
+- rollback automatizado;
+- estratégias formais de versionamento de releases;
+- Multi-cluster quando houver necessidade real de concorrência.
 
 ---
 
-## 26. Status do Projeto
+## 34. Status do Projeto
 
 ### Implementado
 
@@ -600,6 +966,7 @@ A arquitetura permite evolução para um cenário corporativo com:
 - [x] Staging
 - [x] Modelagem dimensional
 - [x] SCD Tipo 2
+- [x] Surrogate Keys
 - [x] Default Members
 - [x] Late Arriving Dimension
 - [x] Fato
@@ -609,18 +976,34 @@ A arquitetura permite evolução para um cenário corporativo com:
 - [x] Data Quality
 - [x] 80/80 testes aprovados
 - [x] Documentação técnica
+- [x] Git e GitHub
+- [x] Feature Branches
+- [x] Pull Requests
+- [x] Continuous Integration
+- [x] SQLFluff
+- [x] Continuous Deployment para DEV
+- [x] Snowflake CLI
+- [x] OIDC / Workload Identity Federation
+- [x] identidade dedicada para CI/CD
+- [x] manifesto de deployment
+- [x] executor automatizado
+- [x] Quality Gate automatizado
+- [x] deployment validado a partir da `main`
 
 ### Próximas evoluções
 
-- [ ] CI/CD
-- [ ] Quality Gate automatizado
-- [ ] automação de deploy
-- [ ] observabilidade histórica
-- [ ] preparação para ambientes QA e PROD
+- [ ] ambiente QA
+- [ ] ambiente PROD
+- [ ] promoção DEV → QA → PROD
+- [ ] histórico de Data Quality
+- [ ] observabilidade operacional
+- [ ] alertas
+- [ ] políticas avançadas de governança
+- [ ] estratégia automatizada de rollback
 
 ---
 
-## 27. Metodologia
+## 35. Metodologia
 
 O projeto foi desenvolvido seguindo princípios da metodologia VDAE, adaptados ao Snowflake.
 
@@ -635,18 +1018,57 @@ Entre os princípios aplicados estão:
 - documentação;
 - rastreabilidade;
 - reprodutibilidade;
-- evolução controlada das mudanças.
+- evolução controlada das mudanças;
+- automação;
+- validação antes da integração;
+- validação após o deployment.
 
 ---
 
-## 28. Conclusão
+## 36. Conclusão
 
 O projeto `engenharia_analytics_saude` implementa uma solução de Analytics Engineering em Snowflake cobrindo desde a ingestão dos dados até a disponibilização de produtos analíticos validados.
 
-A solução combina arquitetura em camadas, modelagem dimensional, processamento incremental, tratamento histórico, qualidade de dados, governança e FinOps.
+A solução combina arquitetura em camadas, modelagem dimensional, processamento incremental, tratamento histórico, qualidade de dados, governança, FinOps e práticas de engenharia de software aplicadas ao ciclo de entrega de dados.
 
-O estado atual possui:
+O pipeline possui:
+
+```text
+Ingestão
+   ↓
+Raw
+   ↓
+Staging
+   ↓
+Business
+   ↓
+Information
+   ↓
+Data Quality
+```
+
+O ciclo de desenvolvimento e entrega possui:
+
+```text
+Feature Branch
+      ↓
+Pull Request
+      ↓
+CI
+      ↓
+Merge
+      ↓
+main
+      ↓
+CD Snowflake DEV
+      ↓
+Quality Gate
+```
+
+O estado final validado possui:
 
 **80 de 80 controles de Data Quality aprovados.**
 
-A próxima evolução arquitetural é incorporar CI/CD e transformar as validações já existentes em parte do processo automatizado de entrega.
+Além disso, o Continuous Deployment foi validado com sucesso a partir de um merge na branch `main`, utilizando autenticação OIDC / Workload Identity Federation e executando automaticamente o deployment e o Quality Gate no Snowflake DEV.
+
+O projeto encontra-se preparado para evoluções futuras envolvendo múltiplos ambientes, observabilidade operacional, governança avançada e estratégias de promoção para QA e PROD.
