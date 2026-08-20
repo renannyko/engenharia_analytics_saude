@@ -118,17 +118,14 @@ Dimensões:
 Representação simplificada:
 
 ```text
-                         dim_paciente
-                         [SCD Tipo 2]
-                              |
-                              |
+                           dim_paciente
+                           [SCD Tipo 2]
+                                |
+                                |
 dim_procedimento ---- fct_procedimentos ---- dim_unidade
-                              |
-                              |
-                         dim_medico
-                              |
-                              |
-                           dim_data
+                          /             \
+                         /               \
+                  dim_medico           dim_data
 ```
 
 ---
