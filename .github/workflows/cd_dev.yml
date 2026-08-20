@@ -188,7 +188,7 @@ jobs:
 
           echo "Executando Quality Gate..."
 
-          QT_REPROVADOS=$(
+          RESULTADO_DQ=$(
               snow sql \
                   -q "
                   USE ROLE role_engenharia_analytics;
@@ -196,32 +196,37 @@ jobs:
                   USE DATABASE engenharia_analytics_saude_dev;
                   USE SCHEMA qualidade_dados;
 
-                  SELECT COUNT(*)
-                  FROM dq_resumo_qualidade
-                  WHERE ds_status = 'REPROVADO';
+                  SELECT
+                      CASE
+                          WHEN COUNT_IF(ds_status = 'REPROVADO') = 0
+                              THEN 'QUALITY_GATE_APROVADO'
+                          ELSE 'QUALITY_GATE_REPROVADO'
+                      END AS resultado_quality_gate,
+                      COUNT(*) AS total_testes,
+                      COUNT_IF(ds_status = 'APROVADO') AS total_aprovados,
+                      COUNT_IF(ds_status = 'REPROVADO') AS total_reprovados
+                  FROM dq_resumo_qualidade;
                   " \
-                  -x \
-                  --format CSV |
-              tail -n 1 |
-              tr -d '[:space:]' |
-              tr -d '"'
+                  -x
           )
 
-          echo "Testes reprovados: ${QT_REPROVADOS}"
+          echo "${RESULTADO_DQ}"
 
-          if [[ ! "${QT_REPROVADOS}" =~ ^[0-9]+$ ]]; then
-              echo "ERRO: não foi possível interpretar o resultado do Quality Gate."
-              exit 1
-          fi
-
-          if [[ "${QT_REPROVADOS}" -gt 0 ]]; then
+          if echo "${RESULTADO_DQ}" | grep -q "QUALITY_GATE_REPROVADO"; then
               echo "ERRO: Quality Gate reprovado."
-              echo "Quantidade de testes reprovados: ${QT_REPROVADOS}"
               exit 1
           fi
 
-          echo "Quality Gate aprovado."
+          if ! echo "${RESULTADO_DQ}" | grep -q "QUALITY_GATE_APROVADO"; then
+              echo "ERRO: não foi possível determinar o resultado do Quality Gate."
+              exit 1
+          fi
+
+          echo "============================================================"
+          echo "QUALITY GATE APROVADO"
+          echo "============================================================"
           echo "Nenhum teste de qualidade foi reprovado."
+          echo "============================================================"
 
       # ----------------------------------------------------------------------------------
       # 8. RESULTADO
