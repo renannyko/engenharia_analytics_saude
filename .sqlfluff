@@ -1,0 +1,46 @@
+[sqlfluff]
+
+# ========================================================================================
+# PROJETO: engenharia_analytics_saude
+# ARQUIVO: .sqlfluff
+# OBJETIVO:
+#   Definir o baseline de lint SQL utilizado pelo Continuous Integration.
+#
+# ESTRATEGIA:
+#   O projeto possui scripts Snowflake previamente implementados, executados e
+#   validados funcionalmente. Nesta primeira etapa de CI, regras exclusivamente
+#   cosmeticas ou que exigiriam refatoracao massiva do legado nao sao bloqueantes.
+#
+#   O baseline podera ser endurecido progressivamente em evolucoes futuras.
+# ========================================================================================
+
+dialect = snowflake
+templater = raw
+
+max_line_length = 120
+
+exclude_rules = LT01,LT02,LT09,LT12,LT15,CP02,AL03,AL10,ST02,ST06,RF04,CV06
+
+
+# ========================================================================================
+# CAPITALIZACAO
+# ========================================================================================
+
+[sqlfluff:rules:capitalisation.keywords]
+
+capitalisation_policy = upper
+
+
+[sqlfluff:rules:capitalisation.functions]
+
+extended_capitalisation_policy = upper
+
+
+[sqlfluff:rules:capitalisation.literals]
+
+capitalisation_policy = upper
+
+
+[sqlfluff:rules:capitalisation.types]
+
+extended_capitalisation_policy = upper

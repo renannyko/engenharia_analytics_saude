@@ -1,0 +1,234 @@
+# ========================================================================================
+# PROJETO: engenharia_analytics_saude
+# ARQUIVO: ci.yml
+# OBJETIVO:
+#   Executar validações automáticas do repositório antes da promoção de alterações.
+#
+# RESPONSABILIDADES:
+#   - validar estrutura mínima do projeto;
+#   - verificar existência dos scripts SQL;
+#   - impedir versionamento de arquivos CSV;
+#   - detectar arquivos temporários indevidos;
+#   - procurar padrões básicos de credenciais em arquivos versionados;
+#   - executar lint dos arquivos SQL.
+#
+# OBSERVAÇÃO:
+#   Este workflow não realiza deploy no Snowflake.
+# ========================================================================================
+
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  validar_repositorio:
+
+    name: Validar repositório
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ----------------------------------------------------------------------------------
+      # 1. CHECKOUT
+      # ----------------------------------------------------------------------------------
+
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------------------------------------
+      # 2. VALIDAR ESTRUTURA MÍNIMA
+      # ----------------------------------------------------------------------------------
+
+      - name: Validar estrutura mínima
+        shell: bash
+        run: |
+          set -e
+
+          echo "Validando estrutura mínima do projeto..."
+
+          test -f README.md || {
+            echo "ERRO: README.md não encontrado."
+            exit 1
+          }
+
+          test -d sql || {
+            echo "ERRO: diretório sql não encontrado."
+            exit 1
+          }
+
+          test -d documentacao || {
+            echo "ERRO: diretório documentacao não encontrado."
+            exit 1
+          }
+
+          test -d changes || {
+            echo "ERRO: diretório changes não encontrado."
+            exit 1
+          }
+
+          echo "Estrutura mínima validada."
+
+      # ----------------------------------------------------------------------------------
+      # 3. VALIDAR EXISTÊNCIA DE ARQUIVOS SQL
+      # ----------------------------------------------------------------------------------
+
+      - name: Validar existência de arquivos SQL
+        shell: bash
+        run: |
+          set -e
+
+          QT_SQL=$(find sql -type f -name "*.sql" | wc -l)
+
+          echo "Arquivos SQL encontrados: ${QT_SQL}"
+
+          if [ "${QT_SQL}" -eq 0 ]; then
+            echo "ERRO: nenhum arquivo SQL encontrado."
+            exit 1
+          fi
+
+          echo "Arquivos SQL encontrados com sucesso."
+
+      # ----------------------------------------------------------------------------------
+      # 4. IMPEDIR CSV VERSIONADO
+      # ----------------------------------------------------------------------------------
+
+      - name: Verificar arquivos CSV versionados
+        shell: bash
+        run: |
+          set -e
+
+          CSV_FILES=$(git ls-files '*.csv')
+
+          if [ -n "${CSV_FILES}" ]; then
+            echo "ERRO: arquivos CSV estão versionados:"
+            echo "${CSV_FILES}"
+            exit 1
+          fi
+
+          echo "Nenhum arquivo CSV versionado."
+
+      # ----------------------------------------------------------------------------------
+      # 5. VERIFICAR ARQUIVOS TEMPORÁRIOS
+      # ----------------------------------------------------------------------------------
+
+      - name: Verificar arquivos temporários indevidos
+        shell: bash
+        run: |
+          set -e
+
+          TEMP_FILES=$(git ls-files | grep -E '(\.tmp$|\.temp$|\.bak$|\.swp$|~$)' || true)
+
+          if [ -n "${TEMP_FILES}" ]; then
+            echo "ERRO: arquivos temporários encontrados:"
+            echo "${TEMP_FILES}"
+            exit 1
+          fi
+
+          echo "Nenhum arquivo temporário indevido encontrado."
+
+      # ----------------------------------------------------------------------------------
+      # 6. VERIFICAÇÃO BÁSICA DE CREDENCIAIS
+      # ----------------------------------------------------------------------------------
+
+      - name: Verificar padrões básicos de credenciais
+        shell: bash
+        run: |
+          set -e
+
+          echo "Procurando padrões básicos de credenciais..."
+
+          FOUND=0
+          PATTERN='(password|passwd|pwd|secret|private_key)[[:space:]]*[:=][[:space:]]*[^[:space:]]+'
+
+          while IFS= read -r FILE
+          do
+            if grep -Ein "${PATTERN}" "${FILE}" >/dev/null 2>&1
+            then
+              echo "Possível credencial encontrada em: ${FILE}"
+              FOUND=1
+            fi
+          done < <(
+            git ls-files \
+              '*.sql' \
+              '*.yml' \
+              '*.yaml' \
+              '*.json' \
+              '*.toml' \
+              '*.ini' \
+              '*.conf'
+          )
+
+          if [ "${FOUND}" -ne 0 ]; then
+            echo "ERRO: possíveis credenciais encontradas."
+            echo "Revise os arquivos indicados antes da promoção."
+            exit 1
+          fi
+
+          echo "Nenhum padrão básico de credencial encontrado."
+
+      # ----------------------------------------------------------------------------------
+      # 7. CONFIGURAR PYTHON
+      # ----------------------------------------------------------------------------------
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ----------------------------------------------------------------------------------
+      # 8. INSTALAR SQLFLUFF
+      # ----------------------------------------------------------------------------------
+
+      - name: Instalar SQLFluff
+        shell: bash
+        run: |
+          set -e
+
+          python -m pip install --upgrade pip
+          pip install sqlfluff
+
+          echo "SQLFluff instalado com sucesso."
+
+      # ----------------------------------------------------------------------------------
+      # 9. EXECUTAR LINT SQL
+      # ----------------------------------------------------------------------------------
+
+      - name: Executar lint SQL
+        shell: bash
+        run: |
+          set -e
+
+          echo "Executando SQLFluff..."
+
+          sqlfluff lint sql \
+            --dialect snowflake
+
+          echo "Lint SQL concluído com sucesso."
+
+      # ----------------------------------------------------------------------------------
+      # 10. RESULTADO
+      # ----------------------------------------------------------------------------------
+
+      - name: Resultado do CI
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo "CI concluído com sucesso."
+          echo "=========================================="
+          echo "Estrutura do repositório: OK"
+          echo "Arquivos SQL: OK"
+          echo "Arquivos CSV: OK"
+          echo "Arquivos temporários: OK"
+          echo "Verificação básica de credenciais: OK"
+          echo "Lint SQL: OK"
+          echo "=========================================="
