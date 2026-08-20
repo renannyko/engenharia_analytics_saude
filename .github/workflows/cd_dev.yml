@@ -1,0 +1,270 @@
+# ========================================================================================
+# PROJETO: engenharia_analytics_saude
+# ARQUIVO: cd_dev.yml
+# OBJETIVO:
+#   Executar o Continuous Deployment dos objetos analíticos no ambiente Snowflake DEV.
+#
+# AMBIENTE:
+#   DEV
+#
+# ARQUITETURA:
+#   GitHub Actions
+#       -> OIDC / Workload Identity Federation
+#       -> Snowflake CLI
+#       -> deploy/dev_manifest.txt
+#       -> scripts/deploy_dev.sh
+#       -> scripts SQL
+#       -> Data Quality
+#       -> Quality Gate
+#
+# SEGURANÇA:
+#   - autenticação sem senha;
+#   - autenticação sem private key;
+#   - usuário técnico dedicado;
+#   - role dedicada de CI/CD;
+#   - token OIDC temporário emitido pelo GitHub.
+#
+# OBSERVAÇÃO:
+#   O deploy recorrente não executa:
+#   - configuração inicial da infraestrutura;
+#   - criação dos objetos de ingestão;
+#   - criação inicial das tabelas RAW;
+#   - carga dos arquivos CSV locais;
+#   - criação inicial da FCT_PROCEDIMENTOS.
+#
+#  GATILHOS:
+#   - push na branch main;
+#   - execução manual.
+# ========================================================================================
+
+name: CD Snowflake DEV
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+
+  deploy_dev:
+
+    name: Deploy Snowflake DEV
+
+    runs-on: ubuntu-latest
+
+    environment: dev
+
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: GITHUB_ACTIONS_SERVICE_USER
+      SNOWFLAKE_ROLE: ROLE_CICD_ENGENHARIA_ANALYTICS
+      SNOWFLAKE_WAREHOUSE: WH_TRANSFORMACAO_DEV
+      SNOWFLAKE_DATABASE: ENGENHARIA_ANALYTICS_SAUDE_DEV
+
+    steps:
+
+      # ----------------------------------------------------------------------------------
+      # 1. CHECKOUT
+      # ----------------------------------------------------------------------------------
+
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # ----------------------------------------------------------------------------------
+      # 2. CONFIGURAR SNOWFLAKE CLI + OIDC
+      # ----------------------------------------------------------------------------------
+
+      - name: Configurar Snowflake CLI
+        uses: snowflakedb/snowflake-actions@v3
+        with:
+          use-oidc: true
+          cli-version: "3.16.0"
+
+      # ----------------------------------------------------------------------------------
+      # 3. VALIDAR AUTENTICAÇÃO
+      # ----------------------------------------------------------------------------------
+
+      - name: Validar autenticação Snowflake
+        shell: bash
+        run: |
+          set -e
+
+          echo "Validando autenticação GitHub Actions -> Snowflake..."
+
+          snow connection test -x
+
+      # ----------------------------------------------------------------------------------
+      # 4. VALIDAR MANIFESTO
+      # ----------------------------------------------------------------------------------
+
+      - name: Validar manifesto de deploy
+        shell: bash
+        run: |
+          set -e
+
+          echo "Validando deploy/dev_manifest.txt..."
+
+          if [[ ! -f "deploy/dev_manifest.txt" ]]; then
+              echo "ERRO: deploy/dev_manifest.txt não encontrado."
+              exit 1
+          fi
+
+          QT_SCRIPTS=$(
+              grep -v '^[[:space:]]*#' deploy/dev_manifest.txt |
+              grep -v '^[[:space:]]*$' |
+              wc -l
+          )
+
+          echo "Scripts encontrados no manifesto: ${QT_SCRIPTS}"
+
+          if [[ "${QT_SCRIPTS}" -eq 0 ]]; then
+              echo "ERRO: manifesto não possui scripts para deploy."
+              exit 1
+          fi
+
+      # ----------------------------------------------------------------------------------
+      # 5. VALIDAR ARQUIVOS DO MANIFESTO
+      # ----------------------------------------------------------------------------------
+
+      - name: Validar arquivos SQL do manifesto
+        shell: bash
+        run: |
+          set -e
+
+          echo "Validando existência dos scripts SQL..."
+
+          while IFS= read -r SCRIPT_SQL || [[ -n "${SCRIPT_SQL}" ]]
+          do
+              SCRIPT_SQL="$(echo "${SCRIPT_SQL}" | xargs)"
+
+              if [[ -z "${SCRIPT_SQL}" ]]; then
+                  continue
+              fi
+
+              if [[ "${SCRIPT_SQL}" == \#* ]]; then
+                  continue
+              fi
+
+              if [[ ! -f "${SCRIPT_SQL}" ]]; then
+                  echo "ERRO: arquivo não encontrado: ${SCRIPT_SQL}"
+                  exit 1
+              fi
+
+              echo "OK: ${SCRIPT_SQL}"
+
+          done < deploy/dev_manifest.txt
+
+      # ----------------------------------------------------------------------------------
+      # 6. EXECUTAR DEPLOY
+      # ----------------------------------------------------------------------------------
+
+      - name: Executar deploy Snowflake DEV
+        shell: bash
+        run: |
+          set -e
+
+          echo "Iniciando deploy no Snowflake DEV..."
+
+          bash scripts/deploy_dev.sh
+
+      # ----------------------------------------------------------------------------------
+      # 7. QUALITY GATE
+      # ----------------------------------------------------------------------------------
+
+      - name: Executar Quality Gate
+        shell: bash
+        run: |
+          set -e
+
+          echo "Executando Quality Gate..."
+
+          RESULTADO_DQ=$(
+              snow sql \
+                  -q "
+                  USE ROLE role_engenharia_analytics;
+                  USE WAREHOUSE wh_transformacao_dev;
+                  USE DATABASE engenharia_analytics_saude_dev;
+                  USE SCHEMA qualidade_dados;
+
+                  SELECT
+                      CASE
+                          WHEN SUM(qt_reprovados) = 0
+                              THEN 'QUALITY_GATE_APROVADO'
+                          ELSE 'QUALITY_GATE_REPROVADO'
+                      END AS resultado_quality_gate,
+
+                      SUM(qt_testes) AS total_testes,
+                      SUM(qt_aprovados) AS total_aprovados,
+                      SUM(qt_reprovados) AS total_reprovados
+
+                  FROM dq_resumo_qualidade;
+                  " \
+                  -x
+          )
+
+          echo "${RESULTADO_DQ}"
+
+          # -------------------------------------------------------------------------------
+          # A Snowflake CLI também imprime o texto da query no log.
+          #
+          # Por isso, a validação procura especificamente uma LINHA DA TABELA DE RESULTADO
+          # iniciada por "|" e contendo QUALITY_GATE_APROVADO ou QUALITY_GATE_REPROVADO.
+          #
+          # Isso evita interpretar os textos existentes dentro do próprio SQL.
+          # -------------------------------------------------------------------------------
+
+          if echo "${RESULTADO_DQ}" |
+             grep -qE '^\|[[:space:]]*QUALITY_GATE_REPROVADO[[:space:]]*\|'
+          then
+              echo "============================================================"
+              echo "QUALITY GATE REPROVADO"
+              echo "============================================================"
+              echo "Existem testes de Data Quality reprovados."
+              echo "Deployment considerado inválido."
+              echo "============================================================"
+              exit 1
+          fi
+
+          if echo "${RESULTADO_DQ}" |
+             grep -qE '^\|[[:space:]]*QUALITY_GATE_APROVADO[[:space:]]*\|'
+          then
+              echo "============================================================"
+              echo "QUALITY GATE APROVADO"
+              echo "============================================================"
+              echo "Todos os controles de Data Quality foram aprovados."
+              echo "============================================================"
+          else
+              echo "============================================================"
+              echo "ERRO NO QUALITY GATE"
+              echo "============================================================"
+              echo "Não foi possível determinar o resultado dos controles."
+              echo "============================================================"
+              exit 1
+          fi
+
+      # ----------------------------------------------------------------------------------
+      # 8. RESULTADO
+      # ----------------------------------------------------------------------------------
+
+      - name: Resultado do deployment
+        shell: bash
+        run: |
+          echo "============================================================"
+          echo "CONTINUOUS DEPLOYMENT - DEV"
+          echo "============================================================"
+          echo "Status: SUCESSO"
+          echo "Ambiente: DEV"
+          echo "Destino: Snowflake"
+          echo "Database: ENGENHARIA_ANALYTICS_SAUDE_DEV"
+          echo "Warehouse: WH_TRANSFORMACAO_DEV"
+          echo "Autenticação: OIDC / Workload Identity Federation"
+          echo "Quality Gate: APROVADO"
+          echo "============================================================"
