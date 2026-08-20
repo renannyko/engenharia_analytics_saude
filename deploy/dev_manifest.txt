@@ -1,0 +1,64 @@
+# ========================================================================================
+# PROJETO: engenharia_analytics_saude
+# ARQUIVO: dev_manifest.txt
+# AMBIENTE: dev
+# OBJETIVO:
+#   Definir explicitamente os scripts SQL executados pelo Continuous Deployment
+#   no ambiente Snowflake DEV.
+#
+# IMPORTANTE:
+#   - a ordem deste arquivo representa a ordem de execução;
+#   - caminhos utilizam "/" porque o GitHub Actions executa em Linux;
+#   - scripts de setup inicial não fazem parte do deploy recorrente;
+#   - ingestão dos CSVs locais não faz parte do deploy recorrente;
+#   - criação física da fato não faz parte do processamento incremental recorrente.
+# ========================================================================================
+
+
+# ========================================================================================
+# 1. STAGING
+# ========================================================================================
+
+sql/02_staging/01_stg_atendimentos.sql
+sql/02_staging/02_stg_procedimentos_itens.sql
+sql/02_staging/03_stg_cadastro_pacientes.sql
+
+
+# ========================================================================================
+# 2. BUSINESS - DIMENSOES
+# ========================================================================================
+
+sql/03_business/01_dim_procedimento.sql
+sql/03_business/02_dim_unidade.sql
+sql/03_business/03_dim_medico.sql
+sql/03_business/04_dim_data.sql
+sql/03_business/05_dim_paciente.sql
+
+
+# ========================================================================================
+# 3. BUSINESS - PROCESSAMENTO INCREMENTAL DA FATO
+# ========================================================================================
+
+sql/03_business/07_carga_fct_procedimentos.sql
+
+
+# ========================================================================================
+# 4. INFORMATION
+# ========================================================================================
+
+sql/04_information/01_vw_analise_procedimentos.sql
+sql/04_information/02_agg_faturamento_mensal_unidade.sql
+
+
+# ========================================================================================
+# 5. DATA QUALITY
+# ========================================================================================
+
+sql/05_qualidade_dados/01_dq_raw.sql
+sql/05_qualidade_dados/02_dq_staging.sql
+sql/05_qualidade_dados/03_dq_business_dimensoes.sql
+sql/05_qualidade_dados/04_dq_business_scd2.sql
+sql/05_qualidade_dados/05_dq_business_fato.sql
+sql/05_qualidade_dados/06_dq_reconciliacao_financeira.sql
+sql/05_qualidade_dados/07_dq_information.sql
+sql/05_qualidade_dados/08_dq_resumo_qualidade.sql
