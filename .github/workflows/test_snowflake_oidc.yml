@@ -17,11 +17,19 @@
 #
 # OBSERVAÇÃO:
 #   Este workflow NÃO realiza deploy.
+#
+# GATILHOS:
+#   - push na branch feature/implementacao_cd_dev;
+#   - execução manual quando o workflow estiver disponível na branch padrão.
 # ========================================================================================
 
 name: Test Snowflake OIDC
 
 on:
+  push:
+    branches:
+      - feature/implementacao_cd_dev
+
   workflow_dispatch:
 
 permissions:
@@ -102,7 +110,35 @@ jobs:
           " -x
 
       # ----------------------------------------------------------------------------------
-      # 5. RESULTADO
+      # 5. VALIDAR ACESSO AO DATABASE
+      # ----------------------------------------------------------------------------------
+
+      - name: Validar acesso ao ambiente DEV
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: GITHUB_ACTIONS_SERVICE_USER
+          SNOWFLAKE_ROLE: ROLE_CICD_ENGENHARIA_ANALYTICS
+          SNOWFLAKE_WAREHOUSE: WH_TRANSFORMACAO_DEV
+          SNOWFLAKE_DATABASE: ENGENHARIA_ANALYTICS_SAUDE_DEV
+        shell: bash
+        run: |
+          set -e
+
+          snow sql -q "
+          SELECT
+              COUNT(*) AS qt_schemas
+          FROM engenharia_analytics_saude_dev.information_schema.schemata
+          WHERE schema_name IN (
+              'RAW',
+              'STAGING',
+              'BUSINESS',
+              'INFORMATION',
+              'QUALIDADE_DADOS'
+          );
+          " -x
+
+      # ----------------------------------------------------------------------------------
+      # 6. RESULTADO
       # ----------------------------------------------------------------------------------
 
       - name: Resultado
@@ -114,6 +150,10 @@ jobs:
           echo "Origem: GitHub Actions"
           echo "Destino: Snowflake DEV"
           echo "Método: Workload Identity Federation / OIDC"
+          echo "Usuário: GITHUB_ACTIONS_SERVICE_USER"
+          echo "Role: ROLE_CICD_ENGENHARIA_ANALYTICS"
+          echo "Warehouse: WH_TRANSFORMACAO_DEV"
+          echo "Database: ENGENHARIA_ANALYTICS_SAUDE_DEV"
           echo "Senha: não utilizada"
           echo "Private key: não utilizada"
           echo "============================================================"
