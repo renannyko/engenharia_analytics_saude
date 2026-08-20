@@ -1,0 +1,119 @@
+# ========================================================================================
+# PROJETO: engenharia_analytics_saude
+# ARQUIVO: test_snowflake_oidc.yml
+# OBJETIVO:
+#   Validar a autenticação entre GitHub Actions e Snowflake utilizando
+#   Workload Identity Federation (WIF) com OpenID Connect (OIDC).
+#
+# AMBIENTE:
+#   DEV
+#
+# SEGURANÇA:
+#   - autenticação sem senha;
+#   - autenticação sem private key;
+#   - token OIDC temporário emitido pelo GitHub;
+#   - usuário Snowflake dedicado para automação;
+#   - role Snowflake dedicada ao CI/CD.
+#
+# OBSERVAÇÃO:
+#   Este workflow NÃO realiza deploy.
+# ========================================================================================
+
+name: Test Snowflake OIDC
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+
+  testar_conexao:
+
+    name: Testar conexão Snowflake
+
+    runs-on: ubuntu-latest
+
+    environment: dev
+
+    steps:
+
+      # ----------------------------------------------------------------------------------
+      # 1. CHECKOUT
+      # ----------------------------------------------------------------------------------
+
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # ----------------------------------------------------------------------------------
+      # 2. CONFIGURAR SNOWFLAKE CLI + OIDC
+      # ----------------------------------------------------------------------------------
+
+      - name: Configurar Snowflake CLI
+        uses: snowflakedb/snowflake-actions@v3
+        with:
+          use-oidc: true
+          cli-version: "3.16.0"
+
+      # ----------------------------------------------------------------------------------
+      # 3. TESTAR AUTENTICAÇÃO
+      # ----------------------------------------------------------------------------------
+
+      - name: Testar autenticação Snowflake
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: GITHUB_ACTIONS_SERVICE_USER
+          SNOWFLAKE_ROLE: ROLE_CICD_ENGENHARIA_ANALYTICS
+          SNOWFLAKE_WAREHOUSE: WH_TRANSFORMACAO_DEV
+          SNOWFLAKE_DATABASE: ENGENHARIA_ANALYTICS_SAUDE_DEV
+        shell: bash
+        run: |
+          set -e
+
+          echo "Testando autenticação GitHub Actions -> Snowflake..."
+
+          snow connection test -x
+
+      # ----------------------------------------------------------------------------------
+      # 4. VALIDAR CONTEXTO SNOWFLAKE
+      # ----------------------------------------------------------------------------------
+
+      - name: Validar contexto Snowflake
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: GITHUB_ACTIONS_SERVICE_USER
+          SNOWFLAKE_ROLE: ROLE_CICD_ENGENHARIA_ANALYTICS
+          SNOWFLAKE_WAREHOUSE: WH_TRANSFORMACAO_DEV
+          SNOWFLAKE_DATABASE: ENGENHARIA_ANALYTICS_SAUDE_DEV
+        shell: bash
+        run: |
+          set -e
+
+          snow sql -q "
+          SELECT
+              CURRENT_USER()      AS usuario,
+              CURRENT_ROLE()      AS role_atual,
+              CURRENT_WAREHOUSE() AS warehouse_atual,
+              CURRENT_DATABASE()  AS database_atual;
+          " -x
+
+      # ----------------------------------------------------------------------------------
+      # 5. RESULTADO
+      # ----------------------------------------------------------------------------------
+
+      - name: Resultado
+        shell: bash
+        run: |
+          echo "============================================================"
+          echo "Teste de autenticação concluído com sucesso."
+          echo "============================================================"
+          echo "Origem: GitHub Actions"
+          echo "Destino: Snowflake DEV"
+          echo "Método: Workload Identity Federation / OIDC"
+          echo "Senha: não utilizada"
+          echo "Private key: não utilizada"
+          echo "============================================================"
