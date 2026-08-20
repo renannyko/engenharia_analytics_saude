@@ -198,13 +198,15 @@ jobs:
 
                   SELECT
                       CASE
-                          WHEN COUNT_IF(ds_status = 'REPROVADO') = 0
+                          WHEN SUM(qt_reprovados) = 0
                               THEN 'QUALITY_GATE_APROVADO'
                           ELSE 'QUALITY_GATE_REPROVADO'
                       END AS resultado_quality_gate,
-                      COUNT(*) AS total_testes,
-                      COUNT_IF(ds_status = 'APROVADO') AS total_aprovados,
-                      COUNT_IF(ds_status = 'REPROVADO') AS total_reprovados
+
+                      SUM(qt_testes) AS total_testes,
+                      SUM(qt_aprovados) AS total_aprovados,
+                      SUM(qt_reprovados) AS total_reprovados
+
                   FROM dq_resumo_qualidade;
                   " \
                   -x
@@ -212,21 +214,43 @@ jobs:
 
           echo "${RESULTADO_DQ}"
 
-          if echo "${RESULTADO_DQ}" | grep -q "QUALITY_GATE_REPROVADO"; then
-              echo "ERRO: Quality Gate reprovado."
+          # -------------------------------------------------------------------------------
+          # A Snowflake CLI também imprime o texto da query no log.
+          #
+          # Por isso, a validação procura especificamente uma LINHA DA TABELA DE RESULTADO
+          # iniciada por "|" e contendo QUALITY_GATE_APROVADO ou QUALITY_GATE_REPROVADO.
+          #
+          # Isso evita interpretar os textos existentes dentro do próprio SQL.
+          # -------------------------------------------------------------------------------
+
+          if echo "${RESULTADO_DQ}" |
+             grep -qE '^\|[[:space:]]*QUALITY_GATE_REPROVADO[[:space:]]*\|'
+          then
+              echo "============================================================"
+              echo "QUALITY GATE REPROVADO"
+              echo "============================================================"
+              echo "Existem testes de Data Quality reprovados."
+              echo "Deployment considerado inválido."
+              echo "============================================================"
               exit 1
           fi
 
-          if ! echo "${RESULTADO_DQ}" | grep -q "QUALITY_GATE_APROVADO"; then
-              echo "ERRO: não foi possível determinar o resultado do Quality Gate."
+          if echo "${RESULTADO_DQ}" |
+             grep -qE '^\|[[:space:]]*QUALITY_GATE_APROVADO[[:space:]]*\|'
+          then
+              echo "============================================================"
+              echo "QUALITY GATE APROVADO"
+              echo "============================================================"
+              echo "Todos os controles de Data Quality foram aprovados."
+              echo "============================================================"
+          else
+              echo "============================================================"
+              echo "ERRO NO QUALITY GATE"
+              echo "============================================================"
+              echo "Não foi possível determinar o resultado dos controles."
+              echo "============================================================"
               exit 1
           fi
-
-          echo "============================================================"
-          echo "QUALITY GATE APROVADO"
-          echo "============================================================"
-          echo "Nenhum teste de qualidade foi reprovado."
-          echo "============================================================"
 
       # ----------------------------------------------------------------------------------
       # 8. RESULTADO
