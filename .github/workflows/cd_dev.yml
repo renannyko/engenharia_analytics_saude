@@ -32,9 +32,8 @@
 #   - carga dos arquivos CSV locais;
 #   - criação inicial da FCT_PROCEDIMENTOS.
 #
-# GATILHOS:
-#   - temporariamente: push na feature/implementacao_cd_dev para validação;
-#   - definitivo: push na main;
+#  GATILHOS:
+#   - push na branch main;
 #   - execução manual.
 # ========================================================================================
 
@@ -44,7 +43,6 @@ on:
   push:
     branches:
       - main
-      - feature/implementacao_cd_dev
 
   workflow_dispatch:
 
